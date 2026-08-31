@@ -429,6 +429,7 @@ async function loadAll() {
 }
 
 function lineName(id) { const l = state.lines.find(x => x.id === id); return l ? l.line_code : '—'; }
+function lineFullName(id) { const l = state.lines.find(x => x.id === id); return l ? `${l.line_code} — ${l.line_name}` : '—'; }
 function productSku(id) { const p = state.products.find(x => x.id === id); return p ? p.sku : '—'; }
 function userName(id) { const u = state.users.find(x => x.id === id); return u ? u.name : '—'; }
 function batchCode(id) { const b = state.batches.find(x => x.id === id); return b ? b.batch_code : '—'; }
@@ -646,7 +647,7 @@ function viewBatchDetail() {
     <div class="page-head">
       <div>
         <div class="page-title batch-code" style="font-size:22px;">${b.batch_code}</div>
-        <div class="page-desc">${productSku(b.product_id)} · ${lineName(b.line_id)} · ${b.shift} shift</div>
+        <div class="page-desc">${productSku(b.product_id)} · ${lineFullName(b.line_id)} · ${b.shift} shift</div>
       </div>
       <span class="badge" style="color:${STATUS_COLOR[b.status]}; font-size:12px; padding:5px 12px;">${b.status}</span>
     </div>
@@ -660,6 +661,7 @@ function viewBatchDetail() {
     </div>
 
     <div class="detail-grid">
+      <div class="detail-item"><div class="detail-label">Line / Workstation</div><div class="detail-value">${lineFullName(b.line_id)}</div></div>
       <div class="detail-item"><div class="detail-label">Assigned Supervisor</div><div class="detail-value">${userName(b.assigned_supervisor_id)}</div></div>
       <div class="detail-item"><div class="detail-label">Entry Method</div><div class="detail-value">${b.entry_method}</div></div>
       <div class="detail-item"><div class="detail-label">Start</div><div class="detail-value mono">${fmtDate(b.start_timestamp)}</div></div>
