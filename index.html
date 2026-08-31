@@ -722,7 +722,7 @@ function viewBatches() {
       <div class="batch-body">
         <div>
           <div class="batch-code">${b.batch_code}</div>
-          <div class="batch-meta">${productSku(b.product_id)} · ${lineName(b.line_id)} · ${b.shift}</div>
+          <div class="batch-meta">${productSku(b.product_id)} · ${lineName(b.line_id)} · ${lineName(b.line_name)} · ${b.shift}</div>
         </div>
         <span class="badge" style="color:${STATUS_COLOR[b.status]}">${b.status}</span>
         <div class="stat-row">
