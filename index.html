@@ -662,6 +662,8 @@ function viewBatchDetail() {
 
     <div class="detail-grid">
       <div class="detail-item"><div class="detail-label">Line / Workstation</div><div class="detail-value">${lineFullName(b.line_id)}</div></div>
+      <div class="detail-item"><div class="detail-label">Lot No</div><div class="detail-value mono">${b.lot_no || '—'}</div></div>
+      <div class="detail-item"><div class="detail-label">Colour</div><div class="detail-value">${b.colour || '—'}</div></div>
       <div class="detail-item"><div class="detail-label">Assigned Supervisor</div><div class="detail-value">${userName(b.assigned_supervisor_id)}</div></div>
       <div class="detail-item"><div class="detail-label">Entry Method</div><div class="detail-value">${b.entry_method}</div></div>
       <div class="detail-item"><div class="detail-label">Start</div><div class="detail-value mono">${fmtDate(b.start_timestamp)}</div></div>
@@ -722,7 +724,7 @@ function viewBatches() {
       <div class="batch-body">
         <div>
           <div class="batch-code">${b.batch_code}</div>
-          <div class="batch-meta">${productSku(b.product_id)} · ${lineFullName(b.line_id)} · ${b.shift}</div>
+          <div class="batch-meta">${productSku(b.product_id)} · ${lineName(b.line_id)} · ${b.shift}${b.lot_no ? ` · Lot ${b.lot_no}` : ''}${b.colour ? ` · ${b.colour}` : ''}</div>
         </div>
         <span class="badge" style="color:${STATUS_COLOR[b.status]}">${b.status}</span>
         <div class="stat-row">
@@ -808,6 +810,14 @@ function viewNewBatch() {
           <label>Entry Method</label>
           <select id="nb_entry" style="width:100%"><option>Manual</option><option>Scanned</option></select>
         </div>
+        <div class="field">
+          <label>Lot No</label>
+          <input id="nb_lotno" style="width:100%" placeholder="e.g. LOT-2384">
+        </div>
+        <div class="field">
+          <label>Colour</label>
+          <input id="nb_colour" style="width:100%" placeholder="e.g. Navy Blue">
+        </div>
       </div>
       <div class="field">
         <label>Notes</label>
@@ -827,6 +837,8 @@ async function createBatch() {
   const supervisorId = document.getElementById('nb_supervisor').value;
   const planned = Number(document.getElementById('nb_planned').value) || 0;
   const entryMethod = document.getElementById('nb_entry').value;
+  const lotNo = document.getElementById('nb_lotno').value.trim();
+  const colour = document.getElementById('nb_colour').value.trim();
   const notes = document.getElementById('nb_notes').value;
 
   const today = new Date();
@@ -847,6 +859,8 @@ async function createBatch() {
     planned_quantity: planned,
     assigned_supervisor_id: supervisorId,
     entry_method: entryMethod,
+    lot_no: lotNo || null,
+    colour: colour || null,
     notes,
   });
 
