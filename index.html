@@ -685,6 +685,8 @@ function viewBatchDetail() {
     <div class="toolbar">
       ${actions}
       <button class="btn btn-ghost" data-action="editqty" data-id="${b.id}">Update Qty</button>
+      ${b.lot_no ? `<button class="btn btn-ghost" data-action="addstep" data-lot="${b.lot_no}">+ Add Workstation to Lot</button>` : ''}
+      ${b.lot_no && b.status === 'Not Started' ? `<button class="btn btn-danger" data-action="removestep" data-id="${b.id}">Remove This Step</button>` : ''}
     </div>
 
     <div class="section-title">Downtime Events</div>
@@ -732,6 +734,7 @@ function batchCardHtml(b) {
           ${actions}
           <button class="btn btn-sm btn-ghost" data-action="editqty" data-id="${b.id}" data-stop="1">Update Qty</button>
           <button class="btn btn-sm btn-amber" data-action="viewbatch" data-id="${b.id}" data-stop="1">View</button>
+          ${b.lot_no && b.status === 'Not Started' ? `<button class="btn btn-sm btn-danger" data-action="removestep" data-id="${b.id}" data-stop="1">Remove</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -771,11 +774,12 @@ function viewBatches() {
     const doneCount = steps.filter(s => s.status === 'Completed').length;
     return `
     <div class="panel lot-card">
-      <div class="lot-header">
+      <div class="lot-header" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
         <div>
           <div class="lot-title">Lot ${lotNo}${first.colour ? ` · ${first.colour}` : ''}</div>
           <div class="batch-meta">${productSku(first.product_id)} · Planned <b>${first.planned_quantity}</b> · ${doneCount}/${steps.length} steps complete</div>
         </div>
+        <button class="btn btn-sm" data-action="addstep" data-lot="${lotNo}">+ Add Workstation</button>
       </div>
       <div class="lot-steps">${steps.map(batchCardHtml).join('')}</div>
     </div>`;
@@ -991,6 +995,80 @@ function openQtyModal(id) {
     if (error) { toast('Update failed: ' + error.message, 'err'); return; }
     backdrop.classList.remove('show');
     toast('Quantities updated.');
+    await loadAll();
+  };
+}
+
+// ------------------------------------------------------------------
+// Manage an existing lot's workstation routing
+// ------------------------------------------------------------------
+function openAddStepModal(lotNo) {
+  const steps = state.batches.filter(b => b.lot_no === lotNo).sort((a, b) => (a.sequence_no || 0) - (b.sequence_no || 0));
+  const first = steps[0];
+  if (!first) { toast('Lot not found.', 'err'); return; }
+
+  const usedLineIds = new Set(steps.map(s => s.line_id));
+  const lineOpts = state.lines.filter(l => l.is_active).map(l =>
+    `<option value="${l.id}" data-code="${l.line_code}">${l.line_code} — ${l.line_name}${usedLineIds.has(l.id) ? ' (already in this lot)' : ''}</option>`
+  ).join('');
+
+  const backdrop = document.getElementById('modalBackdrop');
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-title">Add Workstation — Lot ${lotNo}</div>
+    <div class="field"><label>Workstation</label><select id="as_line" style="width:100%">${lineOpts}</select></div>
+    <div class="auth-hint">This adds a new step to the lot's routing, sharing the same Product, Planned Quantity, and Colour. It starts at "Not Started" and can be sequenced after any existing step.</div>
+    <div class="modal-actions">
+      <button class="btn" id="as_cancel">Cancel</button>
+      <button class="btn btn-amber" id="as_save">Add Step</button>
+    </div>
+  `;
+  backdrop.classList.add('show');
+  document.getElementById('as_cancel').onclick = () => backdrop.classList.remove('show');
+  document.getElementById('as_save').onclick = async () => {
+    const lineSel = document.getElementById('as_line');
+    const lineId = lineSel.value;
+    const lineCode = lineSel.selectedOptions[0].dataset.code;
+    const nextSeq = Math.max(0, ...steps.map(s => s.sequence_no || 0)) + 1;
+    const batchCode = `${lotNo}-${String(nextSeq).padStart(2, '0')}-${lineCode}`;
+
+    const { error } = await sb.from('batches').insert({
+      batch_code: batchCode,
+      product_id: first.product_id,
+      line_id: lineId,
+      shift: first.shift,
+      planned_quantity: first.planned_quantity,
+      assigned_supervisor_id: first.assigned_supervisor_id,
+      entry_method: first.entry_method,
+      lot_no: lotNo,
+      colour: first.colour,
+      sequence_no: nextSeq,
+    });
+    if (error) { toast('Add failed: ' + error.message, 'err'); return; }
+    backdrop.classList.remove('show');
+    toast(`Added ${lineCode} to Lot ${lotNo}.`);
+    await loadAll();
+  };
+}
+
+function removeStep(id) {
+  const b = state.batches.find(x => x.id === id);
+  if (!b) return;
+  const backdrop = document.getElementById('modalBackdrop');
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-title">Remove Workstation Step</div>
+    <div class="field">Remove <b>${lineFullName(b.line_id)}</b> from Lot ${b.lot_no}? This deletes the step and can't be undone. Only steps that haven't started can be removed.</div>
+    <div class="modal-actions">
+      <button class="btn" id="rs_cancel">Cancel</button>
+      <button class="btn btn-danger" id="rs_confirm">Remove</button>
+    </div>
+  `;
+  backdrop.classList.add('show');
+  document.getElementById('rs_cancel').onclick = () => backdrop.classList.remove('show');
+  document.getElementById('rs_confirm').onclick = async () => {
+    const { error } = await sb.from('batches').delete().eq('id', id).eq('status', 'Not Started');
+    if (error) { toast('Remove failed: ' + error.message, 'err'); return; }
+    backdrop.classList.remove('show');
+    toast('Step removed.');
     await loadAll();
   };
 }
@@ -1262,6 +1340,10 @@ function attachHandlers() {
     el.addEventListener('click', (e) => { e.stopPropagation(); closeDowntime(el.dataset.id); }));
   document.querySelectorAll('[data-action="viewbatch"]').forEach(el =>
     el.addEventListener('click', (e) => { e.stopPropagation(); state.selectedBatchId = el.dataset.id; state.route = 'batchdetail'; render(); }));
+  document.querySelectorAll('[data-action="addstep"]').forEach(el =>
+    el.addEventListener('click', (e) => { e.stopPropagation(); openAddStepModal(el.dataset.lot); }));
+  document.querySelectorAll('[data-action="removestep"]').forEach(el =>
+    el.addEventListener('click', (e) => { e.stopPropagation(); removeStep(el.dataset.id); }));
 
   const nbSubmit = document.getElementById('nb_submit');
   if (nbSubmit) nbSubmit.addEventListener('click', createBatch);
