@@ -718,7 +718,7 @@ function batchCardHtml(b) {
       <div class="batch-body">
         <div>
           <div class="batch-code">${b.batch_code}</div>
-          <div class="batch-meta">${productSku(b.product_id)} · ${lineName(b.line_id)} · ${b.shift}${b.lot_no ? ` · Lot ${b.lot_no}` : ''}${b.colour ? ` · ${b.colour}` : ''}</div>
+          <div class="batch-meta">${productSku(b.product_id)} · ${lineFullName(b.line_id)} · ${b.shift}${b.lot_no ? ` · Lot ${b.lot_no}` : ''}${b.colour ? ` · ${b.colour}` : ''}</div>
         </div>
         <span class="badge" style="color:${STATUS_COLOR[b.status]}">${b.status}</span>
         <div class="stat-row">
