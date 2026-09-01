@@ -116,6 +116,16 @@
   .batch-actions { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
   .batch-card-clickable { cursor: pointer; transition: border-color .12s, transform .12s; }
   .batch-card-clickable:hover { border-color: var(--amber); }
+  .lot-card { padding: 16px; margin-bottom: 14px; border-color: var(--amber-dim); }
+  .lot-header { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); }
+  .lot-title { font-family: var(--display); font-size: 15px; font-weight: 700; color: var(--amber); }
+  .lot-steps .batch-card { margin-bottom: 8px; border-style: dashed; }
+  .lot-steps .batch-card:last-child { margin-bottom: 0; }
+  .step-row { display: flex; align-items: center; gap: 10px; background: var(--panel-raised); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; }
+  .step-num { font-family: var(--mono); font-size: 11px; color: var(--text-faint); width: 20px; flex-shrink: 0; }
+  .step-row select { flex: 1; }
+  .step-remove { color: var(--text-faint); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px; }
+  .step-remove:hover { color: var(--red); }
 
   .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 12.5px; cursor: pointer; margin-bottom: 16px; }
   .back-link:hover { color: var(--amber); }
@@ -276,7 +286,7 @@ const ROLE_OPTIONS = ['Supervisor', 'Manager', 'QA', 'Technician'];
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', num: '00' },
   { id: 'batches', label: 'Batches', num: '01' },
-  { id: 'newbatch', label: 'New Batch', num: '02' },
+  { id: 'newbatch', label: 'New Lot', num: '02' },
   { id: 'downtime', label: 'Downtime Log', num: '03' },
   { id: 'defects', label: 'Defect Log', num: '04' },
   { id: 'masters', label: 'Setup', num: '05' },
@@ -455,7 +465,7 @@ function render() {
   if (state.route === 'dashboard') main.innerHTML = viewDashboard();
   else if (state.route === 'batches') main.innerHTML = viewBatches();
   else if (state.route === 'batchdetail') main.innerHTML = viewBatchDetail();
-  else if (state.route === 'newbatch') main.innerHTML = viewNewBatch();
+  else if (state.route === 'newbatch') { main.innerHTML = viewNewBatch(); renderNewLotSteps(); }
   else if (state.route === 'downtime') main.innerHTML = viewDowntime();
   else if (state.route === 'defects') main.innerHTML = viewDefects();
   else if (state.route === 'masters') main.innerHTML = viewMasters();
@@ -543,7 +553,7 @@ function viewDashboard() {
         <div class="page-title">Dashboard</div>
         <div class="page-desc">Floor-wide rollup across all batches, downtime, and defects.</div>
       </div>
-      <button class="btn btn-amber" data-nav="newbatch">+ New Batch</button>
+      <button class="btn btn-amber" data-nav="newbatch">+ New Lot</button>
     </div>
 
     <div class="kpi-row">
@@ -698,27 +708,11 @@ function viewBatchDetail() {
 // ------------------------------------------------------------------
 // VIEW: Batches
 // ------------------------------------------------------------------
-function viewBatches() {
-  const counts = {};
-  ['Not Started', 'In Progress', 'Paused', 'Completed', 'On Hold (QA)'].forEach(s => counts[s] = 0);
-  state.batches.forEach(b => counts[b.status] = (counts[b.status] || 0) + 1);
-
-  let filtered = state.batches;
-  if (state.filterStatus !== 'all') filtered = filtered.filter(b => b.status === state.filterStatus);
-  if (state.filterLine !== 'all') filtered = filtered.filter(b => b.line_id === state.filterLine);
-
-  const kpis = Object.entries(counts).map(([s, c]) => `
-    <div class="kpi"><div class="kpi-val" style="color:${STATUS_COLOR[s]}">${c}</div><div class="kpi-label">${s}</div></div>
-  `).join('');
-
-  const lineOpts = state.lines.map(l => `<option value="${l.id}" ${state.filterLine === l.id ? 'selected' : ''}>${l.line_code}</option>`).join('');
-  const statusOpts = Object.keys(STATUS_COLOR).map(s => `<option value="${s}" ${state.filterStatus === s ? 'selected' : ''}>${s}</option>`).join('');
-
-  const cards = filtered.length ? filtered.map(b => {
-    const actions = (NEXT_ACTIONS[b.status] || []).map(a =>
-      `<button class="btn btn-sm" data-action="status" data-id="${b.id}" data-to="${a.to}" data-stop="1">${a.label}</button>`
-    ).join('');
-    return `
+function batchCardHtml(b) {
+  const actions = (NEXT_ACTIONS[b.status] || []).map(a =>
+    `<button class="btn btn-sm" data-action="status" data-id="${b.id}" data-to="${a.to}" data-stop="1">${a.label}</button>`
+  ).join('');
+  return `
     <div class="batch-card batch-card-clickable" style="--stripe-color:${STATUS_COLOR[b.status]}" data-action="viewbatch" data-id="${b.id}">
       <div class="batch-stripe"></div>
       <div class="batch-body">
@@ -741,7 +735,56 @@ function viewBatches() {
         </div>
       </div>
     </div>`;
-  }).join('') : `<div class="empty">No batches match this filter.</div>`;
+}
+
+function viewBatches() {
+  const counts = {};
+  ['Not Started', 'In Progress', 'Paused', 'Completed', 'On Hold (QA)'].forEach(s => counts[s] = 0);
+  state.batches.forEach(b => counts[b.status] = (counts[b.status] || 0) + 1);
+
+  let filtered = state.batches;
+  if (state.filterStatus !== 'all') filtered = filtered.filter(b => b.status === state.filterStatus);
+  if (state.filterLine !== 'all') filtered = filtered.filter(b => b.line_id === state.filterLine);
+
+  const kpis = Object.entries(counts).map(([s, c]) => `
+    <div class="kpi"><div class="kpi-val" style="color:${STATUS_COLOR[s]}">${c}</div><div class="kpi-label">${s}</div></div>
+  `).join('');
+
+  const lineOpts = state.lines.map(l => `<option value="${l.id}" ${state.filterLine === l.id ? 'selected' : ''}>${l.line_code}</option>`).join('');
+  const statusOpts = Object.keys(STATUS_COLOR).map(s => `<option value="${s}" ${state.filterStatus === s ? 'selected' : ''}>${s}</option>`).join('');
+
+  // Group batches that share a Lot No into one routing card; batches
+  // without a Lot No (legacy/single batches) render individually.
+  const lots = {};
+  const standalone = [];
+  filtered.forEach(b => {
+    if (b.lot_no) {
+      (lots[b.lot_no] = lots[b.lot_no] || []).push(b);
+    } else {
+      standalone.push(b);
+    }
+  });
+  Object.values(lots).forEach(arr => arr.sort((a, b) => (a.sequence_no || 0) - (b.sequence_no || 0)));
+
+  const lotCards = Object.entries(lots).map(([lotNo, steps]) => {
+    const first = steps[0];
+    const doneCount = steps.filter(s => s.status === 'Completed').length;
+    return `
+    <div class="panel lot-card">
+      <div class="lot-header">
+        <div>
+          <div class="lot-title">Lot ${lotNo}${first.colour ? ` · ${first.colour}` : ''}</div>
+          <div class="batch-meta">${productSku(first.product_id)} · Planned <b>${first.planned_quantity}</b> · ${doneCount}/${steps.length} steps complete</div>
+        </div>
+      </div>
+      <div class="lot-steps">${steps.map(batchCardHtml).join('')}</div>
+    </div>`;
+  }).join('');
+
+  const standaloneCards = standalone.length ? standalone.map(batchCardHtml).join('') : '';
+
+  const nothing = !Object.keys(lots).length && !standalone.length
+    ? `<div class="empty">No batches match this filter.</div>` : '';
 
   return `
     <div class="page-head">
@@ -749,48 +792,59 @@ function viewBatches() {
         <div class="page-title">Batches</div>
         <div class="page-desc">Live view of every batch across the floor.</div>
       </div>
-      <button class="btn btn-amber" data-nav="newbatch">+ New Batch</button>
+      <button class="btn btn-amber" data-nav="newbatch">+ New Lot</button>
     </div>
     <div class="kpi-row">${kpis}</div>
     <div class="toolbar">
       <select id="filterStatus"><option value="all">All statuses</option>${statusOpts}</select>
       <select id="filterLine"><option value="all">All lines</option>${lineOpts}</select>
     </div>
-    ${cards}
+    ${nothing}
+    ${lotCards}
+    ${standaloneCards}
   `;
 }
 
 // ------------------------------------------------------------------
-// VIEW: New Batch
+// VIEW: New Lot (creates one batch per workstation step, in sequence)
 // ------------------------------------------------------------------
 function viewNewBatch() {
   const productOpts = state.products.filter(p => p.is_active).map(p => `<option value="${p.id}">${p.sku} — ${p.product_name}</option>`).join('');
-  const lineOpts = state.lines.filter(l => l.is_active).map(l => `<option value="${l.id}" data-code="${l.line_code}">${l.line_code} — ${l.line_name}</option>`).join('');
   const supervisorOpts = state.users.filter(u => u.status === 'Active' && (u.role === 'Supervisor' || u.role === 'Manager')).map(u => `<option value="${u.id}">${u.name}</option>`).join('');
 
   if (!state.products.length || !state.lines.length || !state.users.length) {
     return `
-      <div class="page-head"><div class="page-title">New Batch</div></div>
-      <div class="panel empty">Add at least one Product, Line, and User in <b style="color:var(--amber)">Setup</b> before creating a batch.</div>
+      <div class="page-head"><div class="page-title">New Lot</div></div>
+      <div class="panel empty">Add at least one Product, Line, and User in <b style="color:var(--amber)">Setup</b> before creating a lot.</div>
     `;
   }
+
+  state._newLotSteps = (state._newLotSteps && state._newLotSteps.length) ? state._newLotSteps : [state.lines[0]?.id];
 
   return `
     <div class="page-head">
       <div>
-        <div class="page-title">New Batch</div>
-        <div class="page-desc">Batch code is generated automatically as LINE-SHIFT-DATE-SEQ.</div>
+        <div class="page-title">New Lot</div>
+        <div class="page-desc">A lot moves through an ordered sequence of workstations. One batch record is created per step, sharing the same Lot No, Colour, Product, and Planned Quantity.</div>
       </div>
     </div>
     <div class="panel" style="padding:22px; max-width:640px;">
       <div class="grid2">
         <div class="field">
+          <label>Lot No</label>
+          <input id="nb_lotno" style="width:100%" placeholder="e.g. 2500">
+        </div>
+        <div class="field">
+          <label>Colour</label>
+          <input id="nb_colour" style="width:100%" placeholder="e.g. 215 Blue">
+        </div>
+        <div class="field">
           <label>Product / SKU</label>
           <select id="nb_product" style="width:100%">${productOpts}</select>
         </div>
         <div class="field">
-          <label>Line / Workstation</label>
-          <select id="nb_line" style="width:100%">${lineOpts}</select>
+          <label>Planned Quantity</label>
+          <input id="nb_planned" type="number" min="0" step="1" style="width:100%" value="0">
         </div>
         <div class="field">
           <label>Shift</label>
@@ -803,36 +857,47 @@ function viewNewBatch() {
           <select id="nb_supervisor" style="width:100%">${supervisorOpts}</select>
         </div>
         <div class="field">
-          <label>Planned Quantity</label>
-          <input id="nb_planned" type="number" min="0" step="1" style="width:100%" value="0">
-        </div>
-        <div class="field">
           <label>Entry Method</label>
           <select id="nb_entry" style="width:100%"><option>Manual</option><option>Scanned</option></select>
         </div>
-        <div class="field">
-          <label>Lot No</label>
-          <input id="nb_lotno" style="width:100%" placeholder="e.g. LOT-2384">
-        </div>
-        <div class="field">
-          <label>Colour</label>
-          <input id="nb_colour" style="width:100%" placeholder="e.g. Navy Blue">
-        </div>
       </div>
+
+      <div class="field">
+        <label>Process Steps — in order</label>
+        <div id="nb_steps"></div>
+        <button class="btn btn-sm" id="nb_addstep" type="button">+ Add Step</button>
+      </div>
+
       <div class="field">
         <label>Notes</label>
         <textarea id="nb_notes" rows="2" style="width:100%"></textarea>
       </div>
-      <button class="btn btn-amber" id="nb_submit">Create Batch</button>
+      <button class="btn btn-amber" id="nb_submit">Create Lot</button>
     </div>
   `;
 }
 
+function renderNewLotSteps() {
+  const container = document.getElementById('nb_steps');
+  if (!container) return;
+  const lineOptsFor = (selectedId) => state.lines.filter(l => l.is_active).map(l =>
+    `<option value="${l.id}" ${l.id === selectedId ? 'selected' : ''}>${l.line_code} — ${l.line_name}</option>`
+  ).join('');
+  container.innerHTML = state._newLotSteps.map((lineId, i) => `
+    <div class="step-row">
+      <span class="step-num">${i + 1}.</span>
+      <select data-step-index="${i}">${lineOptsFor(lineId)}</select>
+      ${state._newLotSteps.length > 1 ? `<span class="step-remove" data-remove-step="${i}">×</span>` : ''}
+    </div>
+  `).join('');
+  container.querySelectorAll('select[data-step-index]').forEach(sel =>
+    sel.addEventListener('change', () => { state._newLotSteps[Number(sel.dataset.stepIndex)] = sel.value; }));
+  container.querySelectorAll('[data-remove-step]').forEach(el =>
+    el.addEventListener('click', () => { state._newLotSteps.splice(Number(el.dataset.removeStep), 1); renderNewLotSteps(); }));
+}
+
 async function createBatch() {
   const productId = document.getElementById('nb_product').value;
-  const lineSel = document.getElementById('nb_line');
-  const lineId = lineSel.value;
-  const lineCode = lineSel.selectedOptions[0].dataset.code;
   const shift = document.getElementById('nb_shift').value;
   const supervisorId = document.getElementById('nb_supervisor').value;
   const planned = Number(document.getElementById('nb_planned').value) || 0;
@@ -840,32 +905,39 @@ async function createBatch() {
   const lotNo = document.getElementById('nb_lotno').value.trim();
   const colour = document.getElementById('nb_colour').value.trim();
   const notes = document.getElementById('nb_notes').value;
+  const stepLineIds = state._newLotSteps;
+
+  if (!stepLineIds.length) { toast('Add at least one process step.', 'err'); return; }
 
   const today = new Date();
   const ymd = today.toISOString().slice(0, 10).replace(/-/g, '');
-  const shiftLetter = shift[0];
 
-  const { count } = await sb.from('batches').select('*', { count: 'exact', head: true })
-    .eq('line_id', lineId).eq('shift', shift)
-    .gte('created_at', `${today.toISOString().slice(0,10)}T00:00:00Z`);
-  const seq = String((count || 0) + 1).padStart(3, '0');
-  const batchCode = `${lineCode}-${shiftLetter}-${ymd}-${seq}`;
-
-  const { error } = await sb.from('batches').insert({
-    batch_code: batchCode,
-    product_id: productId,
-    line_id: lineId,
-    shift,
-    planned_quantity: planned,
-    assigned_supervisor_id: supervisorId,
-    entry_method: entryMethod,
-    lot_no: lotNo || null,
-    colour: colour || null,
-    notes,
+  const rows = stepLineIds.map((lineId, i) => {
+    const line = state.lines.find(l => l.id === lineId);
+    const seq = i + 1;
+    const batchCode = lotNo
+      ? `${lotNo}-${String(seq).padStart(2, '0')}-${line ? line.line_code : 'LN'}`
+      : `${line ? line.line_code : 'LN'}-${shift[0]}-${ymd}-${String(seq).padStart(3, '0')}`;
+    return {
+      batch_code: batchCode,
+      product_id: productId,
+      line_id: lineId,
+      shift,
+      planned_quantity: planned,
+      assigned_supervisor_id: supervisorId,
+      entry_method: entryMethod,
+      lot_no: lotNo || null,
+      colour: colour || null,
+      sequence_no: seq,
+      notes,
+    };
   });
 
+  const { error } = await sb.from('batches').insert(rows);
+
   if (error) { toast('Create failed: ' + error.message, 'err'); return; }
-  toast(`Batch ${batchCode} created.`);
+  toast(lotNo ? `Lot ${lotNo} created with ${rows.length} step${rows.length > 1 ? 's' : ''}.` : `Batch created.`);
+  state._newLotSteps = null;
   state.route = 'batches';
   await loadAll();
 }
@@ -1193,6 +1265,11 @@ function attachHandlers() {
 
   const nbSubmit = document.getElementById('nb_submit');
   if (nbSubmit) nbSubmit.addEventListener('click', createBatch);
+  const nbAddStep = document.getElementById('nb_addstep');
+  if (nbAddStep) nbAddStep.addEventListener('click', () => {
+    state._newLotSteps.push(state.lines[0]?.id);
+    renderNewLotSteps();
+  });
   const dtSubmit = document.getElementById('dt_submit');
   if (dtSubmit) dtSubmit.addEventListener('click', logDowntimeStart);
   const dfSubmit = document.getElementById('df_submit');
