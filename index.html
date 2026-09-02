@@ -119,6 +119,9 @@
   .lot-card { padding: 16px; margin-bottom: 14px; border-color: var(--amber-dim); }
   .lot-header { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); }
   .lot-title { font-family: var(--display); font-size: 15px; font-weight: 700; color: var(--amber); }
+  .lot-title-row { display: flex; align-items: center; gap: 10px; cursor: pointer; flex: 1; }
+  .lot-chevron { font-size: 12px; color: var(--text-faint); transition: transform .15s; flex-shrink: 0; }
+  .lot-chevron.collapsed { transform: rotate(-90deg); }
   .lot-steps .batch-card { margin-bottom: 8px; border-style: dashed; }
   .lot-steps .batch-card:last-child { margin-bottom: 0; }
   .step-row { display: flex; align-items: center; gap: 10px; background: var(--panel-raised); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; }
@@ -263,6 +266,7 @@ let state = {
   currentUser: null,
   authMode: 'login',
   selectedBatchId: null,
+  collapsedLots: {},
 };
 
 const STATUS_COLOR = {
@@ -772,16 +776,20 @@ function viewBatches() {
   const lotCards = Object.entries(lots).map(([lotNo, steps]) => {
     const first = steps[0];
     const doneCount = steps.filter(s => s.status === 'Completed').length;
+    const isCollapsed = !!state.collapsedLots[lotNo];
     return `
     <div class="panel lot-card">
       <div class="lot-header" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <div>
-          <div class="lot-title">Lot ${lotNo}${first.colour ? ` · ${first.colour}` : ''}</div>
-          <div class="batch-meta">${productSku(first.product_id)} · Planned <b>${first.planned_quantity}</b> · ${doneCount}/${steps.length} steps complete</div>
+        <div class="lot-title-row" data-action="togglelot" data-lot="${lotNo}">
+          <span class="lot-chevron ${isCollapsed ? 'collapsed' : ''}">▾</span>
+          <div>
+            <div class="lot-title">Lot ${lotNo}${first.colour ? ` · ${first.colour}` : ''}</div>
+            <div class="batch-meta">${productSku(first.product_id)} · Planned <b>${first.planned_quantity}</b> · ${doneCount}/${steps.length} steps complete</div>
+          </div>
         </div>
-        <button class="btn btn-sm" data-action="addstep" data-lot="${lotNo}">+ Add Workstation</button>
+        <button class="btn btn-sm" data-action="addstep" data-lot="${lotNo}" data-stop="1">+ Add Workstation</button>
       </div>
-      <div class="lot-steps">${steps.map(batchCardHtml).join('')}</div>
+      <div class="lot-steps" style="${isCollapsed ? 'display:none;' : ''}">${steps.map(batchCardHtml).join('')}</div>
     </div>`;
   }).join('');
 
@@ -1344,6 +1352,13 @@ function attachHandlers() {
     el.addEventListener('click', (e) => { e.stopPropagation(); openAddStepModal(el.dataset.lot); }));
   document.querySelectorAll('[data-action="removestep"]').forEach(el =>
     el.addEventListener('click', (e) => { e.stopPropagation(); removeStep(el.dataset.id); }));
+  document.querySelectorAll('[data-action="togglelot"]').forEach(el =>
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const lot = el.dataset.lot;
+      state.collapsedLots[lot] = !state.collapsedLots[lot];
+      render();
+    }));
 
   const nbSubmit = document.getElementById('nb_submit');
   if (nbSubmit) nbSubmit.addEventListener('click', createBatch);
