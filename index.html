@@ -268,7 +268,7 @@ let state = {
   selectedBatchId: null,
   collapsedLots: {},
   reportPeriod: 'daily',
-  reportDate: new Date().toISOString().slice(0, 10),
+  reportDate: toLocalDateStr(new Date()),
 };
 
 const STATUS_COLOR = {
@@ -313,6 +313,17 @@ function toast(msg, kind = 'ok') {
 function fmtDate(d) {
   if (!d) return '—';
   return new Date(d).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+// toISOString() converts to UTC first, which silently shifts the
+// calendar date for any timezone offset from UTC (e.g. a "next day"
+// click in IST could land back on the same day, or jump by an extra
+// day, depending on the offset). Format from local fields instead.
+function toLocalDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 // ------------------------------------------------------------------
@@ -666,7 +677,7 @@ function shiftReportDate(period, anchorDateStr, dir) {
   else if (period === 'weekly') d.setDate(d.getDate() + 7 * dir);
   else if (period === 'monthly') d.setMonth(d.getMonth() + dir);
   else d.setFullYear(d.getFullYear() + dir);
-  return d.toISOString().slice(0, 10);
+  return toLocalDateStr(d);
 }
 
 function inRange(dateStr, start, end) {
@@ -1145,7 +1156,7 @@ async function createBatch() {
   if (!stepLineIds.length) { toast('Add at least one process step.', 'err'); return; }
 
   const today = new Date();
-  const ymd = today.toISOString().slice(0, 10).replace(/-/g, '');
+  const ymd = toLocalDateStr(today).replace(/-/g, '');
 
   const rows = stepLineIds.map((lineId, i) => {
     const line = state.lines.find(l => l.id === lineId);
@@ -1718,7 +1729,7 @@ function attachHandlers() {
       render();
     }));
   const rpToday = document.querySelector('[data-action="reporttoday"]');
-  if (rpToday) rpToday.addEventListener('click', () => { state.reportDate = new Date().toISOString().slice(0, 10); render(); });
+  if (rpToday) rpToday.addEventListener('click', () => { state.reportDate = toLocalDateStr(new Date()); render(); });
 
   const nbSubmit = document.getElementById('nb_submit');
   if (nbSubmit) nbSubmit.addEventListener('click', createBatch);
