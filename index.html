@@ -1458,14 +1458,19 @@ function viewMasters() {
     `<div class="tab ${tab === t ? 'active' : ''}" data-mtab="${t}">${t[0].toUpperCase() + t.slice(1)}</div>`
   ).join('');
 
-  const managerNotice = `<div class="panel empty" style="margin-bottom:20px; max-width:680px;">Only Managers can add or edit master data here. You're signed in as <b style="color:var(--text)">${state.currentUser ? state.currentUser.role : '—'}</b>.</div>`;
+  const managerNotice = `<div class="panel empty" style="margin-bottom:20px; max-width:680px;">Only Managers can add, edit, or remove master data here. You're signed in as <b style="color:var(--text)">${state.currentUser ? state.currentUser.role : '—'}</b>.</div>`;
+  const actionsHeader = isManager ? '<th></th>' : '';
 
   let body = '';
   if (tab === 'products') {
     const rows = state.products.map(p => `
       <tr><td class="mono">${p.sku}</td><td>${p.product_name}</td><td class="mono">${p.standard_cycle_time}</td>
-      <td>${p.is_active ? '<span style="color:var(--green)">Active</span>' : '<span class="dim">Inactive</span>'}</td></tr>
-    `).join('') || `<tr><td colspan="4" class="empty">No products yet.</td></tr>`;
+      <td>${p.is_active ? '<span style="color:var(--green)">Active</span>' : '<span class="dim">Inactive</span>'}</td>
+      ${isManager ? `<td>
+        <button class="btn btn-sm" data-action="editproduct" data-id="${p.id}">Edit</button>
+        <button class="btn btn-sm ${p.is_active ? 'btn-danger' : ''}" data-action="toggleproduct" data-id="${p.id}" data-active="${p.is_active}">${p.is_active ? 'Deactivate' : 'Activate'}</button>
+      </td>` : ''}</tr>
+    `).join('') || `<tr><td colspan="${isManager ? 5 : 4}" class="empty">No products yet.</td></tr>`;
     body = `
       ${isManager ? `
       <div class="panel" style="padding:18px; margin-bottom:20px; max-width:680px;">
@@ -1476,13 +1481,17 @@ function viewMasters() {
         </div>
         <button class="btn btn-amber" id="pm_submit">Add Product</button>
       </div>` : managerNotice}
-      <div class="panel"><table><thead><tr><th>SKU</th><th>Name</th><th>Cycle Time</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="panel"><table><thead><tr><th>SKU</th><th>Name</th><th>Cycle Time</th><th>Status</th>${actionsHeader}</tr></thead><tbody>${rows}</tbody></table></div>
     `;
   } else if (tab === 'lines') {
     const rows = state.lines.map(l => `
       <tr><td class="mono">${l.line_code}</td><td>${l.line_name}</td><td class="dim">${l.facility || '—'}</td>
-      <td>${l.is_active ? '<span style="color:var(--green)">Active</span>' : '<span class="dim">Inactive</span>'}</td></tr>
-    `).join('') || `<tr><td colspan="4" class="empty">No lines yet.</td></tr>`;
+      <td>${l.is_active ? '<span style="color:var(--green)">Active</span>' : '<span class="dim">Inactive</span>'}</td>
+      ${isManager ? `<td>
+        <button class="btn btn-sm" data-action="editline" data-id="${l.id}">Edit</button>
+        <button class="btn btn-sm ${l.is_active ? 'btn-danger' : ''}" data-action="toggleline" data-id="${l.id}" data-active="${l.is_active}">${l.is_active ? 'Deactivate' : 'Activate'}</button>
+      </td>` : ''}</tr>
+    `).join('') || `<tr><td colspan="${isManager ? 5 : 4}" class="empty">No lines yet.</td></tr>`;
     body = `
       ${isManager ? `
       <div class="panel" style="padding:18px; margin-bottom:20px; max-width:680px;">
@@ -1493,14 +1502,18 @@ function viewMasters() {
         </div>
         <button class="btn btn-amber" id="lm_submit">Add Line</button>
       </div>` : managerNotice}
-      <div class="panel"><table><thead><tr><th>Code</th><th>Name</th><th>Facility</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="panel"><table><thead><tr><th>Code</th><th>Name</th><th>Facility</th><th>Status</th>${actionsHeader}</tr></thead><tbody>${rows}</tbody></table></div>
     `;
   } else {
     const rows = state.users.map(u => `
       <tr><td>${u.name}</td><td class="mono">${u.employee_id}</td><td>${u.role}</td>
       <td>${u.status === 'Active' ? '<span style="color:var(--green)">Active</span>' : '<span class="dim">Inactive</span>'}</td>
-      <td>${u.auth_user_id ? '<span style="color:var(--green)">Linked</span>' : '<span class="dim">No login yet</span>'}</td></tr>
-    `).join('') || `<tr><td colspan="5" class="empty">No users yet.</td></tr>`;
+      <td>${u.auth_user_id ? '<span style="color:var(--green)">Linked</span>' : '<span class="dim">No login yet</span>'}</td>
+      ${isManager ? `<td>
+        <button class="btn btn-sm" data-action="edituser" data-id="${u.id}">Edit</button>
+        <button class="btn btn-sm ${u.status === 'Active' ? 'btn-danger' : ''}" data-action="toggleuser" data-id="${u.id}" data-active="${u.status === 'Active'}">${u.status === 'Active' ? 'Deactivate' : 'Activate'}</button>
+      </td>` : ''}</tr>
+    `).join('') || `<tr><td colspan="${isManager ? 6 : 5}" class="empty">No users yet.</td></tr>`;
     const roleOpts = ROLE_OPTIONS.map(r => `<option>${r}</option>`).join('');
     body = `
       ${isManager ? `
@@ -1513,7 +1526,7 @@ function viewMasters() {
         <button class="btn btn-amber" id="um_submit">Add Placeholder Employee</button>
         <div class="auth-hint">Creates a record with no login yet — the employee links it by signing up with the same Employee ID.</div>
       </div>` : managerNotice}
-      <div class="panel"><table><thead><tr><th>Name</th><th>Employee ID</th><th>Role</th><th>Status</th><th>Login</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="panel"><table><thead><tr><th>Name</th><th>Employee ID</th><th>Role</th><th>Status</th><th>Login</th>${actionsHeader}</tr></thead><tbody>${rows}</tbody></table></div>
     `;
   }
 
@@ -1522,6 +1535,118 @@ function viewMasters() {
     <div class="tab-row">${tabs}</div>
     ${body}
   `;
+}
+
+// ------------------------------------------------------------------
+// Manager-only edit / deactivate modals for master data
+// ------------------------------------------------------------------
+function openEditProductModal(id) {
+  const p = state.products.find(x => x.id === id);
+  if (!p) return;
+  const backdrop = document.getElementById('modalBackdrop');
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-title">Edit Product</div>
+    <div class="field"><label>SKU</label><input id="ep_sku" style="width:100%" value="${p.sku}"></div>
+    <div class="field"><label>Product Name</label><input id="ep_name" style="width:100%" value="${p.product_name}"></div>
+    <div class="field"><label>Standard Cycle Time</label><input id="ep_cycle" type="number" step="0.01" style="width:100%" value="${p.standard_cycle_time}"></div>
+    <div class="modal-actions">
+      <button class="btn" id="ep_cancel">Cancel</button>
+      <button class="btn btn-amber" id="ep_save">Save</button>
+    </div>
+  `;
+  backdrop.classList.add('show');
+  document.getElementById('ep_cancel').onclick = () => backdrop.classList.remove('show');
+  document.getElementById('ep_save').onclick = async () => {
+    const sku = document.getElementById('ep_sku').value.trim();
+    const name = document.getElementById('ep_name').value.trim();
+    const cycle = Number(document.getElementById('ep_cycle').value) || 0;
+    if (!sku || !name) { toast('SKU and name are required.', 'err'); return; }
+    const { error } = await sb.from('products').update({ sku, product_name: name, standard_cycle_time: cycle }).eq('id', id);
+    if (error) { toast('Update failed: ' + error.message, 'err'); return; }
+    backdrop.classList.remove('show');
+    toast('Product updated.');
+    await loadAll();
+  };
+}
+
+async function toggleProduct(id, currentlyActive) {
+  const { error } = await sb.from('products').update({ is_active: !currentlyActive }).eq('id', id);
+  if (error) { toast('Update failed: ' + error.message, 'err'); return; }
+  toast(currentlyActive ? 'Product deactivated.' : 'Product activated.');
+  await loadAll();
+}
+
+function openEditLineModal(id) {
+  const l = state.lines.find(x => x.id === id);
+  if (!l) return;
+  const backdrop = document.getElementById('modalBackdrop');
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-title">Edit Line</div>
+    <div class="field"><label>Line Code</label><input id="el_code" style="width:100%" value="${l.line_code}"></div>
+    <div class="field"><label>Line Name</label><input id="el_name" style="width:100%" value="${l.line_name}"></div>
+    <div class="field"><label>Facility</label><input id="el_facility" style="width:100%" value="${l.facility || ''}"></div>
+    <div class="modal-actions">
+      <button class="btn" id="el_cancel">Cancel</button>
+      <button class="btn btn-amber" id="el_save">Save</button>
+    </div>
+  `;
+  backdrop.classList.add('show');
+  document.getElementById('el_cancel').onclick = () => backdrop.classList.remove('show');
+  document.getElementById('el_save').onclick = async () => {
+    const code = document.getElementById('el_code').value.trim();
+    const name = document.getElementById('el_name').value.trim();
+    const facility = document.getElementById('el_facility').value.trim();
+    if (!code || !name) { toast('Line code and name are required.', 'err'); return; }
+    const { error } = await sb.from('lines').update({ line_code: code, line_name: name, facility }).eq('id', id);
+    if (error) { toast('Update failed: ' + error.message, 'err'); return; }
+    backdrop.classList.remove('show');
+    toast('Line updated.');
+    await loadAll();
+  };
+}
+
+async function toggleLine(id, currentlyActive) {
+  const { error } = await sb.from('lines').update({ is_active: !currentlyActive }).eq('id', id);
+  if (error) { toast('Update failed: ' + error.message, 'err'); return; }
+  toast(currentlyActive ? 'Line deactivated.' : 'Line activated.');
+  await loadAll();
+}
+
+function openEditUserModal(id) {
+  const u = state.users.find(x => x.id === id);
+  if (!u) return;
+  const roleOpts = ROLE_OPTIONS.map(r => `<option ${r === u.role ? 'selected' : ''}>${r}</option>`).join('');
+  const backdrop = document.getElementById('modalBackdrop');
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-title">Edit User</div>
+    <div class="field"><label>Name</label><input id="eu_name" style="width:100%" value="${u.name}"></div>
+    <div class="field"><label>Employee ID</label><input id="eu_empid" style="width:100%" value="${u.employee_id}" disabled></div>
+    <div class="auth-hint" style="margin-top:-8px; margin-bottom:14px;">Employee ID is fixed once set — it's what links this record to a login.</div>
+    <div class="field"><label>Role</label><select id="eu_role" style="width:100%">${roleOpts}</select></div>
+    <div class="modal-actions">
+      <button class="btn" id="eu_cancel">Cancel</button>
+      <button class="btn btn-amber" id="eu_save">Save</button>
+    </div>
+  `;
+  backdrop.classList.add('show');
+  document.getElementById('eu_cancel').onclick = () => backdrop.classList.remove('show');
+  document.getElementById('eu_save').onclick = async () => {
+    const name = document.getElementById('eu_name').value.trim();
+    const role = document.getElementById('eu_role').value;
+    if (!name) { toast('Name is required.', 'err'); return; }
+    const { error } = await sb.from('app_users').update({ name, role }).eq('id', id);
+    if (error) { toast('Update failed: ' + error.message, 'err'); return; }
+    backdrop.classList.remove('show');
+    toast('User updated.');
+    await loadAll();
+  };
+}
+
+async function toggleUser(id, currentlyActive) {
+  const { error } = await sb.from('app_users').update({ status: currentlyActive ? 'Inactive' : 'Active' }).eq('id', id);
+  if (error) { toast('Update failed: ' + error.message, 'err'); return; }
+  toast(currentlyActive ? 'User deactivated.' : 'User activated.');
+  await loadAll();
 }
 
 async function addProduct() {
@@ -1615,6 +1740,19 @@ function attachHandlers() {
   if (lmSubmit) lmSubmit.addEventListener('click', addLine);
   const umSubmit = document.getElementById('um_submit');
   if (umSubmit) umSubmit.addEventListener('click', addUser);
+
+  document.querySelectorAll('[data-action="editproduct"]').forEach(el =>
+    el.addEventListener('click', () => openEditProductModal(el.dataset.id)));
+  document.querySelectorAll('[data-action="toggleproduct"]').forEach(el =>
+    el.addEventListener('click', () => toggleProduct(el.dataset.id, el.dataset.active === 'true')));
+  document.querySelectorAll('[data-action="editline"]').forEach(el =>
+    el.addEventListener('click', () => openEditLineModal(el.dataset.id)));
+  document.querySelectorAll('[data-action="toggleline"]').forEach(el =>
+    el.addEventListener('click', () => toggleLine(el.dataset.id, el.dataset.active === 'true')));
+  document.querySelectorAll('[data-action="edituser"]').forEach(el =>
+    el.addEventListener('click', () => openEditUserModal(el.dataset.id)));
+  document.querySelectorAll('[data-action="toggleuser"]').forEach(el =>
+    el.addEventListener('click', () => toggleUser(el.dataset.id, el.dataset.active === 'true')));
 }
 
 // ------------------------------------------------------------------
