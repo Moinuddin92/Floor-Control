@@ -7,6 +7,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
   :root {
     --bg: #14171a;
@@ -715,7 +718,7 @@ function getReportBuckets(period, start, end) {
   return buckets;
 }
 
-function viewReports() {
+function computeReportData() {
   const period = state.reportPeriod;
   const { start, end, label } = getPeriodRange(period, state.reportDate);
 
@@ -735,11 +738,9 @@ function viewReports() {
 
   const dtByReason = {};
   periodDowntime.forEach(d => { dtByReason[d.downtime_reason] = (dtByReason[d.downtime_reason] || 0) + (d.duration_minutes || 0); });
-  const maxDt = Math.max(1, ...Object.values(dtByReason));
 
   const defByReason = {};
   periodDefects.forEach(d => { defByReason[d.defect_reason_code] = (defByReason[d.defect_reason_code] || 0) + (d.quantity || 0); });
-  const maxDef = Math.max(1, ...Object.values(defByReason));
 
   const perLine = state.lines.map(l => {
     const lb = periodBatches.filter(b => b.line_id === l.id);
@@ -749,8 +750,214 @@ function viewReports() {
     return { code: l.line_code, name: l.line_name, batches: lb.length, good, reject, yieldPct: actual > 0 ? Math.round((good / actual) * 1000) / 10 : null };
   }).filter(l => l.batches > 0);
 
-  const buckets = getReportBuckets(period, start, end);
-  const bucketMax = Math.max(1, ...buckets.map(bk => state.batches.filter(b => inRange(b.created_at, bk.start, bk.end)).reduce((s, b) => s + (b.good_quantity || 0), 0)));
+  const buckets = getReportBuckets(period, start, end).map(bk => ({
+    label: bk.label,
+    good: state.batches.filter(b => inRange(b.created_at, bk.start, bk.end)).reduce((s, b) => s + (b.good_quantity || 0), 0),
+  }));
+
+  const batchRows = periodBatches.map(b => ({
+    batch_code: b.batch_code,
+    lot_no: b.lot_no || '',
+    colour: b.colour || '',
+    product: productSku(b.product_id),
+    line: lineFullName(b.line_id),
+    shift: b.shift,
+    status: b.status,
+    planned_quantity: b.planned_quantity,
+    good_quantity: b.good_quantity,
+    reject_quantity: b.defect_reject_quantity,
+    supervisor: userName(b.assigned_supervisor_id),
+    created_at: b.created_at,
+  }));
+
+  return {
+    period, label, start, end,
+    periodBatches, periodDowntime, periodDefects,
+    totalGood, totalReject, totalActual, totalPlanned, yieldPct, attainmentPct,
+    completedCount, totalDowntimeMin, totalDefectQty,
+    dtByReason, defByReason, perLine, buckets, batchRows,
+  };
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function csvEscape(val) {
+  const s = String(val ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function reportFilename(rpt, ext) {
+  return `floor-control-report-${rpt.period}-${state.reportDate}.${ext}`;
+}
+
+function exportReportCSV() {
+  const rpt = computeReportData();
+  const lines = [];
+  lines.push(csvEscape('Floor Control Report'));
+  lines.push(csvEscape(rpt.label));
+  lines.push('');
+
+  lines.push('Summary');
+  lines.push('Metric,Value');
+  lines.push(`Batches,${rpt.periodBatches.length}`);
+  lines.push(`Completed,${rpt.completedCount}`);
+  lines.push(`Good Quantity,${rpt.totalGood}`);
+  lines.push(`Reject Quantity,${rpt.totalReject}`);
+  lines.push(`Yield %,${rpt.yieldPct === null ? '' : rpt.yieldPct}`);
+  lines.push(`Plan Attainment %,${rpt.attainmentPct === null ? '' : rpt.attainmentPct}`);
+  lines.push(`Downtime (min),${Math.round(rpt.totalDowntimeMin)}`);
+  lines.push(`Defect Quantity,${rpt.totalDefectQty}`);
+  lines.push('');
+
+  lines.push('Line Performance');
+  lines.push('Line,Name,Batches,Good,Reject,Yield %');
+  rpt.perLine.forEach(l => lines.push([l.code, l.name, l.batches, l.good, l.reject, l.yieldPct === null ? '' : l.yieldPct].map(csvEscape).join(',')));
+  lines.push('');
+
+  lines.push('Downtime by Reason');
+  lines.push('Reason,Minutes');
+  Object.entries(rpt.dtByReason).forEach(([r, m]) => lines.push([r, Math.round(m)].map(csvEscape).join(',')));
+  lines.push('');
+
+  lines.push('Defects by Reason');
+  lines.push('Reason,Quantity');
+  Object.entries(rpt.defByReason).forEach(([r, q]) => lines.push([r, q].map(csvEscape).join(',')));
+  lines.push('');
+
+  lines.push('Batches');
+  lines.push('Batch Code,Lot No,Colour,Product,Line,Shift,Status,Planned,Good,Reject,Supervisor,Created At');
+  rpt.batchRows.forEach(b => lines.push([
+    b.batch_code, b.lot_no, b.colour, b.product, b.line, b.shift, b.status,
+    b.planned_quantity, b.good_quantity, b.reject_quantity, b.supervisor, b.created_at,
+  ].map(csvEscape).join(',')));
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  downloadBlob(blob, reportFilename(rpt, 'csv'));
+  toast('CSV downloaded.');
+}
+
+function exportReportXLSX() {
+  if (typeof XLSX === 'undefined') { toast('Excel export library failed to load.', 'err'); return; }
+  const rpt = computeReportData();
+  const wb = XLSX.utils.book_new();
+
+  const summaryAoa = [
+    ['Floor Control Report'], [rpt.label], [],
+    ['Metric', 'Value'],
+    ['Batches', rpt.periodBatches.length],
+    ['Completed', rpt.completedCount],
+    ['Good Quantity', rpt.totalGood],
+    ['Reject Quantity', rpt.totalReject],
+    ['Yield %', rpt.yieldPct],
+    ['Plan Attainment %', rpt.attainmentPct],
+    ['Downtime (min)', Math.round(rpt.totalDowntimeMin)],
+    ['Defect Quantity', rpt.totalDefectQty],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryAoa), 'Summary');
+
+  const lineAoa = [['Line', 'Name', 'Batches', 'Good', 'Reject', 'Yield %']]
+    .concat(rpt.perLine.map(l => [l.code, l.name, l.batches, l.good, l.reject, l.yieldPct]));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(lineAoa), 'Line Performance');
+
+  const dtAoa = [['Reason', 'Minutes']].concat(Object.entries(rpt.dtByReason).map(([r, m]) => [r, Math.round(m)]));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dtAoa), 'Downtime');
+
+  const defAoa = [['Reason', 'Quantity']].concat(Object.entries(rpt.defByReason).map(([r, q]) => [r, q]));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(defAoa), 'Defects');
+
+  const batchAoa = [['Batch Code', 'Lot No', 'Colour', 'Product', 'Line', 'Shift', 'Status', 'Planned', 'Good', 'Reject', 'Supervisor', 'Created At']]
+    .concat(rpt.batchRows.map(b => [b.batch_code, b.lot_no, b.colour, b.product, b.line, b.shift, b.status, b.planned_quantity, b.good_quantity, b.reject_quantity, b.supervisor, b.created_at]));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(batchAoa), 'Batches');
+
+  XLSX.writeFile(wb, reportFilename(rpt, 'xlsx'));
+  toast('Excel file downloaded.');
+}
+
+function exportReportPDF() {
+  if (typeof window.jspdf === 'undefined') { toast('PDF export library failed to load.', 'err'); return; }
+  const rpt = computeReportData();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  doc.setFontSize(16);
+  doc.text('Floor Control Report', 14, 16);
+  doc.setFontSize(11);
+  doc.text(rpt.label, 14, 24);
+
+  doc.autoTable({
+    startY: 30,
+    head: [['Metric', 'Value']],
+    body: [
+      ['Batches', rpt.periodBatches.length],
+      ['Completed', rpt.completedCount],
+      ['Good Quantity', rpt.totalGood],
+      ['Reject Quantity', rpt.totalReject],
+      ['Yield %', rpt.yieldPct === null ? '—' : rpt.yieldPct],
+      ['Plan Attainment %', rpt.attainmentPct === null ? '—' : rpt.attainmentPct],
+      ['Downtime (min)', Math.round(rpt.totalDowntimeMin)],
+      ['Defect Quantity', rpt.totalDefectQty],
+    ],
+    theme: 'grid', styles: { fontSize: 9 },
+  });
+
+  let y = doc.lastAutoTable.finalY + 10;
+  doc.setFontSize(12); doc.text('Line Performance', 14, y);
+  doc.autoTable({
+    startY: y + 4,
+    head: [['Line', 'Name', 'Batches', 'Good', 'Reject', 'Yield %']],
+    body: rpt.perLine.map(l => [l.code, l.name, l.batches, l.good, l.reject, l.yieldPct === null ? '—' : l.yieldPct]),
+    theme: 'grid', styles: { fontSize: 9 },
+  });
+
+  y = doc.lastAutoTable.finalY + 10;
+  doc.setFontSize(12); doc.text('Downtime by Reason', 14, y);
+  doc.autoTable({
+    startY: y + 4,
+    head: [['Reason', 'Minutes']],
+    body: Object.entries(rpt.dtByReason).map(([r, m]) => [r, Math.round(m)]),
+    theme: 'grid', styles: { fontSize: 9 },
+  });
+
+  y = doc.lastAutoTable.finalY + 10;
+  doc.setFontSize(12); doc.text('Defects by Reason', 14, y);
+  doc.autoTable({
+    startY: y + 4,
+    head: [['Reason', 'Quantity']],
+    body: Object.entries(rpt.defByReason).map(([r, q]) => [r, q]),
+    theme: 'grid', styles: { fontSize: 9 },
+  });
+
+  if (rpt.batchRows.length) {
+    doc.addPage();
+    doc.setFontSize(12); doc.text('Batches', 14, 16);
+    doc.autoTable({
+      startY: 22,
+      head: [['Batch Code', 'Lot', 'Colour', 'Product', 'Line', 'Shift', 'Status', 'Planned', 'Good', 'Reject']],
+      body: rpt.batchRows.map(b => [b.batch_code, b.lot_no, b.colour, b.product, b.line, b.shift, b.status, b.planned_quantity, b.good_quantity, b.reject_quantity]),
+      theme: 'grid', styles: { fontSize: 7 },
+    });
+  }
+
+  doc.save(reportFilename(rpt, 'pdf'));
+  toast('PDF downloaded.');
+}
+
+function viewReports() {
+  const rpt = computeReportData();
+  const { period, label, dtByReason, defByReason, perLine, buckets, totalGood, totalReject, yieldPct, attainmentPct,
+          totalDowntimeMin, totalDefectQty, completedCount, periodBatches } = rpt;
+  const maxDt = Math.max(1, ...Object.values(dtByReason));
+  const maxDef = Math.max(1, ...Object.values(defByReason));
+  const bucketMax = Math.max(1, ...buckets.map(bk => bk.good));
 
   const periodTabs = REPORT_PERIODS.map(p => `<div class="tab ${period === p.id ? 'active' : ''}" data-reportperiod="${p.id}">${p.label}</div>`).join('');
 
@@ -770,15 +977,12 @@ function viewReports() {
     </div>
   `).join('') : `<div class="empty" style="padding:16px 0;">No defects in this period.</div>`;
 
-  const trendBars = buckets.length ? buckets.map(bk => {
-    const good = state.batches.filter(b => inRange(b.created_at, bk.start, bk.end)).reduce((s, b) => s + (b.good_quantity || 0), 0);
-    return `
+  const trendBars = buckets.length ? buckets.map(bk => `
     <div class="bar-row">
       <div class="bar-label">${bk.label}</div>
-      <div class="bar-track"><div class="bar-fill" style="width:${(good / bucketMax) * 100}%; background:var(--green)"></div></div>
-      <div class="bar-val">${good}</div>
-    </div>`;
-  }).join('') : '';
+      <div class="bar-track"><div class="bar-fill" style="width:${(bk.good / bucketMax) * 100}%; background:var(--green)"></div></div>
+      <div class="bar-val">${bk.good}</div>
+    </div>`).join('') : '';
 
   const lineRows = perLine.length ? perLine.map(l => `
     <tr>
@@ -803,6 +1007,11 @@ function viewReports() {
         <button class="btn btn-sm" data-action="reportnav" data-dir="1">Next →</button>
         <button class="btn btn-sm btn-ghost" data-action="reporttoday">Today</button>
       </div>
+    </div>
+    <div class="toolbar">
+      <button class="btn btn-sm" data-action="exportcsv">⬇ CSV</button>
+      <button class="btn btn-sm" data-action="exportxlsx">⬇ Excel</button>
+      <button class="btn btn-sm" data-action="exportpdf">⬇ PDF</button>
     </div>
     <div class="tab-row">${periodTabs}</div>
 
@@ -1730,6 +1939,12 @@ function attachHandlers() {
     }));
   const rpToday = document.querySelector('[data-action="reporttoday"]');
   if (rpToday) rpToday.addEventListener('click', () => { state.reportDate = toLocalDateStr(new Date()); render(); });
+  const rpExportCsv = document.querySelector('[data-action="exportcsv"]');
+  if (rpExportCsv) rpExportCsv.addEventListener('click', exportReportCSV);
+  const rpExportXlsx = document.querySelector('[data-action="exportxlsx"]');
+  if (rpExportXlsx) rpExportXlsx.addEventListener('click', exportReportXLSX);
+  const rpExportPdf = document.querySelector('[data-action="exportpdf"]');
+  if (rpExportPdf) rpExportPdf.addEventListener('click', exportReportPDF);
 
   const nbSubmit = document.getElementById('nb_submit');
   if (nbSubmit) nbSubmit.addEventListener('click', createBatch);
